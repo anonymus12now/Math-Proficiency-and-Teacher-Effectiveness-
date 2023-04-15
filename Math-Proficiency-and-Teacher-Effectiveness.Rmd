@@ -1,0 +1,180 @@
+---
+title: "R Notebook"
+output: word_document
+---
+
+
+```{r}
+
+# The codes here will read the data directly from the Google Drive Folder where the documents were shared
+
+# install.packages("googledrive")
+library("googledrive")
+drive_auth()
+#drive_ls() -- need to run it the first time when starting a session
+
+# file 1
+student_score_file <- drive_find("StudentScores.csv")
+student_score_file_id <- student_score_file$id
+#drive_download(student_score_file_id) -- need to run it the first time when starting a session
+student_score <- read.csv("StudentScores.csv")
+
+
+# file 2
+educator_effectiveness_file <- drive_find("EducatorEffectivenessSnapshot.csv")
+educator_effectiveness_file_id <- educator_effectiveness_file$id
+#drive_download(educator_effectiveness_file_id) -- need to run it the first time when starting a session
+educator_effectiveness <- read.csv("EducatorEffectivenessSnapshot.csv")
+
+```
+
+```{r}
+# Value of "<10" are treated as NA
+
+replace_values <- c("number_tested", "level1_highlyproficient", "level2_proficient", "level3_notproficient", "level4_notproficient", "percent_proficient", "average_scaled_score")
+student_score[, replace_values][student_score[, replace_values] == "< 10"] <- NA
+```
+
+
+```{r}
+### Code for Part 1. (Note - Proficient in this code means students scoring at proficient or higher)
+```
+
+
+```{r}
+# The StudentScore.csv file contains aggregated values for all schools in a district, broken down by grade and subgroup. In order to show students who are proficient or higher in Math at each school, I have removed done three things:
+
+# I have removed - "All Building" from building_name" column. This is to ensure that the analysis is school-specific.
+student_score <- student_score[student_score$building_name != "All Buildings", ]
+
+# I have only kept "All_Students" in the subgroup column. This is mainly because of the Part 1 question parameter. This will give us analysis of all students at each school, and avoid any confounding factors as students  can belong to different subgroups.
+student_score <- student_score[student_score$subgroup == "All Students", ]
+
+# I have only kept "Mathematics" for subject_name column. This is mainly because of the Part 1 question parameter.
+student_score <- student_score[student_score$subject_name == "Mathematics", ]
+
+# I am changing two columns - "percent_proficient" and "number_tested" from strings to numeric data types to enable mathematical calculation and create a new column that shows the number of students who are proficient in Math. This new column is the rounded to the nearest whole number to show number of students.
+
+str(student_score$percent_proficient)
+str(student_score$number_tested)
+student_score$percent_proficient <- as.numeric(student_score$percent_proficient)
+student_score$number_tested <- as.numeric(student_score$number_tested)
+student_score$number_of_students_proficient_in_math <- student_score$percent_proficient * student_score$number_tested
+student_score$number_of_students_proficient_in_math <- round(student_score$number_of_students_proficient_in_math)
+```
+
+
+```{r}
+# I am creating a new table that includes Math scores for all students per school. The table includes the total number of students who were tested in Math at each school, as well as the number of students who were proficient in Math. I have calculated a new column to show the Math proficiency percentage at each school.  
+proficiency_by_schools <- aggregate(student_score[, c("number_tested", "number_of_students_proficient_in_math")], by = list(school = student_score$building_name), sum, na.rm = TRUE)
+proficiency_by_schools$math_proficiency_percentage <-proficiency_by_schools$number_of_students_proficient_in_math * 100 / proficiency_by_schools$number_tested
+
+# Changing column names
+colnames(proficiency_by_schools)[2] <- "total_number_of_students_tested_in_math"
+colnames(proficiency_by_schools)[3] <- "number_of_students_proficient_in_math"
+
+# I am sorting the table by the Math proficiency percentage in descending order. I have decided not to round the percentage decimals because I will be selecting the top 10 schools based on their Math proficiency percentage, and I do not want the decimal points to affect the ranking in any way.
+proficiency_by_schools <- proficiency_by_schools[order(-proficiency_by_schools$math_proficiency_percentage),]
+```
+
+
+```{r}
+# I have created a new table that ranks the top 10 schools in terms of Math proficiency. The table includes three columns: the total number of students who were tested in Math at each school, the number of students who were proficient in Math, and the Math proficiency percentage for each school.
+
+top_ten_schools <- proficiency_by_schools[1:10,]
+
+# I am rounding the percentage to the nearest decimal
+top_ten_schools$math_proficiency_percentage <- round(top_ten_schools$math_proficiency_percentage * 100) / 100
+```
+
+
+```{r}
+#Preparing for export
+
+colnames(top_ten_schools)[1] <- "Top 10 Schools"
+colnames(top_ten_schools)[2] <- "Total Number of Students Tested"
+colnames(top_ten_schools)[3] <- "Number of Students Proficient in Math"
+colnames(top_ten_schools)[4] <- "Math Proficiency Rate"
+
+```
+
+
+
+
+```{r}
+
+### Code for Part 2.
+
+```
+
+```{r}
+
+# I am cleaning the data. I have removed the first 6 row & updated the title. Also, I have removed the last row.
+educator_effectiveness <- educator_effectiveness[6:nrow(educator_effectiveness), ]
+colnames(educator_effectiveness) <- educator_effectiveness[1, ]
+educator_effectiveness <- educator_effectiveness[-1, ]
+educator_effectiveness <- educator_effectiveness[-nrow(educator_effectiveness), ]
+
+```
+
+
+```{r}
+
+# I am bring the data together so I can see Math proficient and educator effectiveness for each school together
+proficiency_effectiveness_old <- merge(proficiency_by_schools, educator_effectiveness, by.x = "school", by.y = "location", all.x = TRUE)
+
+# Every school on the Student Scores list should have a match on the Educator Effectiveness Snapshot list, so I am checking here which ones didnt match
+
+missing_schools_old <- subset(proficiency_effectiveness_old, is.na(highly_effective))
+
+# I have created a new table so I can change the names in the educator effectiveness to make it consisten with the student score file
+educator_effectiveness_new <- educator_effectiveness
+educator_effectiveness_new$location <- gsub("Carstens Elem-Middle School", "Carstens Elementary-Middle School", educator_effectiveness_new$location)
+educator_effectiveness_new$location <- gsub("Pulaski Elem-Middle School", "Pulaski Elementary-Middle School", educator_effectiveness_new$location)
+
+# bringing the new table and proficiency_by_schools together and checking that all schools matched
+proficiency_effectiveness <- merge(proficiency_by_schools, educator_effectiveness_new, by.x = "school", by.y = "location", all.x = TRUE)
+missing_schools <- subset(proficiency_effectiveness, is.na(highly_effective))
+
+# I am only keeping relevant columns so I can see if there is a relationship between the math proficiency of a school’s students and the effectiveness of its teachers
+proficiency_effectiveness <- proficiency_effectiveness[, c("school", "math_proficiency_percentage", "effective_or_more_percent")]
+
+#I am checking and making changing two columns from strings to numeric data types to enable mathematical calculation
+str(proficiency_effectiveness$math_proficiency_percentage)
+str(proficiency_effectiveness$effective_or_more_percent)
+proficiency_effectiveness$effective_or_more_percent <- as.numeric(proficiency_effectiveness$effective_or_more_percent)
+proficiency_effectiveness$math_proficiency_percentage <- round(proficiency_effectiveness$math_proficiency_percentage / 100, 2)
+
+
+```
+
+```{r}
+#scatter plot and analysis
+library(ggplot2)
+library("scales")
+
+ggplot(proficiency_effectiveness, aes(x = effective_or_more_percent, y = 
+math_proficiency_percentage)) + 
+  geom_point(color = "#00A4C7") + 
+  labs(x = "Teacher Effective Percentage", y = "Student Math Proficiency Percentage", 
+       title = "Relationship between Math Proficiency and Teacher Effectiveness") +
+  scale_x_continuous(labels = percent_format()) +
+  scale_y_continuous(labels = percent_format()) +
+  theme_bw()
+
+
+model <- lm(math_proficiency_percentage ~ effective_or_more_percent, data = proficiency_effectiveness)
+
+# Obtain model summary
+summary(model)
+
+
+```
+
+
+
+```{r}
+#The files are exported. I am not writing this code so my not seen in the path name
+
+```
+
